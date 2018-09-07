@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import shutil
 import socket
@@ -6,8 +7,8 @@ import subprocess
 import sys
 import threading
 import time
-
-import requests
+import urllib.error
+import urllib.request
 
 WORK_DIR = os.path.abspath(sys.path[0])
 HOME_DIR = os.path.expanduser('~')
@@ -25,54 +26,56 @@ def get_arch() -> str:
     return aarch.get(os.uname()[4], 'unknown')
 
 
+def __request_handler(url, headers, use_info=False) -> dict:
+    request = urllib.request.Request(url=url, headers=headers)
+    try:
+        response = urllib.request.urlopen(request)
+    except urllib.error.HTTPError as e:
+        print('Request failed: {}'.format(e.reason))
+        return {}
+    except urllib.error.URLError as e:
+        print('Request connection failed: {}'.format(e.reason))
+        return {}
+    if response.getcode() != 200:
+        print('Request code error: {}'.format(response.getcode()))
+        return {}
+    response_text = response.read().decode('utf-8') if not use_info else \
+        response.info().as_string().strip('\n').split('\n')
+    try:
+        if not use_info:
+            result = json.loads(response_text)
+        else:
+            result = {}
+            for line in response_text:
+                key, val = line.split(': ', 1)
+                result[key] = val
+    except (json.JSONDecodeError, ValueError) as e:
+        print('Decode error {}'.format(e))
+        return {}
+    return result
+
+
+def __docker_auth(registry: str, headers: dict):
+    params = {'service': 'registry.docker.io', 'scope': 'repository:{}:pull'.format(registry)}
+    url = 'https://auth.docker.io/token?{}'.format('&'.join(['{}={}'.format(key, val) for key, val in params.items()]))
+    token = __request_handler(url, headers).get('token')
+    if token is None:
+        print('Auth error - no token')
+    return token
+
+
 def _docker_remote_sha256(rep_tag: str):
     registry, tag = rep_tag.rsplit(':', 1)
-    params = {
-        'service': 'registry.docker.io',
-        'scope': 'repository:{}:pull'.format(registry),
-    }
     headers = {'Accept': 'application/vnd.docker.distribution.manifest.v2+json'}
-    try:
-        rq = requests.request('GET', 'https://auth.docker.io/token', params=params, headers=headers, stream=False)
-    except (requests.exceptions.HTTPError, requests.exceptions.RequestException) as e:
-        print('Auth request error: {}'.format(e))
+    token = __docker_auth(registry, headers)
+    if token is None:
         return None
-
-    if rq.status_code != 200:
-        print('Auth response code: {}'.format(rq.status_code))
-        return None
-    try:
-        json = rq.json()
-    except ValueError as e:
-        print('Auth response error {}'.format(e))
-        return None
-    else:
-        token = json.get('token')
-    if token is None or not token:
-        print('Auth error: no token')
-        return None
-
     headers['Authorization'] = 'Bearer {}'.format(token)
-    try:
-        rq = requests.head('https://registry-1.docker.io/v2/{}/manifests/{}'.format(registry, tag), headers=headers)
-    except (requests.exceptions.HTTPError, requests.exceptions.RequestException) as e:
-        print('Registry request error: {}'.format(e))
-        return None
-
-    if rq.status_code != 200:
-        print('Registry response code: {}'.format(rq.status_code))
-        return None
-
-    data = rq.headers
-    if data is None:
-        print('Registry error - no headers')
-        return None
-    sha256 = data.get('Docker-Content-Digest')
-    sha256 = sha256 or data.get('Etag')
+    url = 'https://registry-1.docker.io/v2/{}/manifests/{}'.format(registry, tag)
+    sha256 = __request_handler(url, headers, True).get('Docker-Content-Digest')
     if sha256 is None:
         print('Registry error headers parsing - sha256 not found')
-
-    return sha256.strip('"')
+    return sha256
 
 
 def __docker_run_fatal(cmd: list, fatal: bool = False, stderr=subprocess.PIPE, stdout=subprocess.PIPE):
