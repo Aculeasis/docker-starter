@@ -86,6 +86,10 @@ def __docker_run_fatal(cmd: list, fatal: bool = False, stderr=subprocess.PIPE, s
     return run
 
 
+def _docker_test() -> bool:
+    return not __docker_run_fatal(['ps', ]).returncode
+
+
 def _docker_containers() -> list:
     # вернет список из [имя контейнера, ], ps -a --format "{{.Names}}"
     run = __docker_run_fatal(['ps', '-a', '--format', '{{.Names}}'], True)
@@ -153,14 +157,18 @@ class DockerStarter:
     def __init__(self, cfg: dict or list):
         self._cfg = cfg if type(cfg) is list else [cfg, ]
         self._args = self._cli_parse()
-        self._containers = _docker_containers()
         self._check()
+        self._containers = _docker_containers()
         if self._args.t:
             self._all_once()
         else:
             self._one_by_one()
 
     def _check(self):
+        if not _docker_test():
+            print('Docker not installed or not enough privileges')
+            print('Install docker or use sudo')
+            exit(1)
         images = set()
         names = set()
         for cfg in self._cfg:
