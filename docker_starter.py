@@ -132,6 +132,8 @@ def _docker_images_sha256() -> dict:
     run = __docker_run_fatal(['images', '--digests', '--format', '{{.Repository}}:{{.Tag}} {{.Digest}}'], True)
     data = {}
     for line in run.stdout.decode().strip('\n').rsplit('\n'):
+        if len(line) < 3:
+            continue
         rep_tag, sha256 = line.rsplit(' ', 1)
         data[rep_tag] = sha256
     return data
@@ -142,6 +144,8 @@ def _docker_images_id() -> dict:
     run = __docker_run_fatal(['images', '--format', '{{.Repository}}:{{.Tag}} {{.ID}}'], True)
     data = {}
     for line in run.stdout.decode().strip('\n').rsplit('\n'):
+        if len(line) < 3:
+            continue
         rep_tag, id_ = line.rsplit(' ', 1)
         data[rep_tag] = id_
     return data
