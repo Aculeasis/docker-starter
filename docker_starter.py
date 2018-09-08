@@ -200,6 +200,7 @@ class DockerStarter:
         one.add_argument('--upgrade', action='store_true', help='Upgrade image and re-create container')
         one.add_argument('--remove', action='store_true', help='Remove container and image')
         one.add_argument('--purge', action='store_true', help='Remove container, image and data')
+        one.add_argument('--restart', action='store_true', help='Run --stop && --start')
 
         parser.add_argument('-e', action='append', metavar='KEY=VAL', help='Add more env')
         parser.add_argument('-b', action='store_true', help='Build images from Dockerfile, no pull from hub')
@@ -235,6 +236,9 @@ class _StarterWorker(threading.Thread):
             self._remove()
         elif self._cli.purge:
             self._purge()
+        elif self._cli.restart:
+            if self._stop():
+                self._start()
         self._status = 0
 
     def _config_check(self):
@@ -256,6 +260,7 @@ class _StarterWorker(threading.Thread):
 
     def _start(self):
         if self._cfg['name'] in self._containers:
+            print('start {}'.format(self._cfg['name']))
             return _docker_start(self._cfg['name'])
         if self._cfg['image'] not in _docker_images_sha256() and not self._pull():
             return print('Runtime error, exit.')
