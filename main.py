@@ -38,6 +38,6 @@ if ds.OS == 'linux':
     CFG['any'] = [['--device', ' ', '/dev/snd'], ]
 elif ds.OS == 'windows':
     # noinspection PyTypeChecker
-    CFG['e']['HOST_IP'] = 'host.docker.internal'
+    CFG['e']['HOST_INTERNAL_IP'] = 'host.docker.internal'
 
 ds.DockerStarter(CFG)
