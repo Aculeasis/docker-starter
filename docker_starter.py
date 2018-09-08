@@ -9,10 +9,13 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import platform
 
 WORK_DIR = os.path.abspath(sys.path[0])
 HOME_DIR = os.path.expanduser('~')
 DATA_PATH = os.path.join(HOME_DIR, '.docker_starter')
+OS = platform.uname()[0].lower()
+OS = 'linux' if OS.startswith('linux') else OS
 
 
 def get_ip_address():
@@ -22,8 +25,8 @@ def get_ip_address():
 
 
 def get_arch() -> str:
-    aarch = {'x86_64': 'amd64', 'aarch64': 'arm64v8', 'armv7l': 'arm32v7'}
-    return aarch.get(os.uname()[4], 'unknown')
+    aarch = {'x86_64': 'amd64', 'amd64': 'amd64', 'aarch64': 'arm64v8', 'armv7l': 'arm32v7'}
+    return aarch.get(platform.uname()[4].lower(), 'unknown')
 
 
 def __request_handler(url, headers, use_info=False) -> dict:
@@ -124,7 +127,8 @@ def _docker_build(rep_tag: str, file: str, path: str) -> bool:
 
 
 def _docker_run(cmd: list):
-    return not __docker_run_fatal(['run', ] + cmd).returncode
+    # noinspection PyTypeChecker
+    return not __docker_run_fatal(cmd=['run', ] + cmd, stderr=None).returncode
 
 
 def _docker_images_sha256() -> dict:
@@ -169,6 +173,8 @@ class DockerStarter:
             self._one_by_one()
 
     def _check(self):
+        if OS != 'linux':
+            print('Warning! OS {} partial support.'.format(OS))
         if not _docker_test():
             print('Docker not installed or not enough privileges')
             print('Install docker or use sudo')
@@ -278,8 +284,8 @@ class _StarterWorker(threading.Thread):
 
     def _start(self):
         if self._cfg['name'] in self._containers:
-            print('start {}'.format(self._cfg['name']))
-            return _docker_start(self._cfg['name'])
+            result = '' if _docker_start(self._cfg['name']) else 'Failed '
+            return print('{}start {}'.format(result, self._cfg['name']))
         if self._cfg['image'] not in _docker_images_sha256() and not self._pull():
             return print('Runtime error, exit.')
         self._run()
@@ -370,14 +376,14 @@ class _StarterWorker(threading.Thread):
             shutil.rmtree(self._cfg['data_path'], ignore_errors=True)
 
     def _run(self):
-        makedir = False
         cmd = ['-d', ]
         for key, val in self._cfg.get('p', {}).items():
             cmd.extend(['-p', '{}:{}'.format(key, val)])
 
         for key, val in self._cfg.get('v', {}).items():
-            makedir = True
-            cmd.extend(['-v', '{}:{}'.format(os.path.join(self._cfg['data_path'], key), val)])
+            mount_path = os.path.join(self._cfg['data_path'], key)
+            os.makedirs(mount_path, exist_ok=True)
+            cmd.extend(['-v', '{}:{}'.format(mount_path, val)])
 
         if self._cli.e is not None:
             for env in self._cli.e:
@@ -397,8 +403,7 @@ class _StarterWorker(threading.Thread):
         cmd.append('--restart={}'.format(self._cfg.get('restart', 'always')))
         cmd.extend(['--name', self._cfg['name']])
         cmd.append(self._cfg['image'])
-        if makedir:
-            os.makedirs(self._cfg['data_path'], exist_ok=True)
+
         result = _docker_run(cmd)
         msg = 'docker run' if result else 'Failed docker run'
         print('{} {}'.format(msg, ' '.join(cmd)))

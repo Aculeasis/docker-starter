@@ -32,7 +32,9 @@ CFG = {
     # add -e key=VAL
     'e': {'HOST_REAL_IP': LAN_IP},
     # Any adding as [['-a', ' ','b'],['c', '=','d']] -> '-a b c=d'
-    'any': [['--device', ' ', '/dev/snd'], ],
+    # 'any': [['--device', ' ', '/dev/snd'], ],
 }
+if ds.OS == 'linux':
+    CFG['any'] = [['--device', ' ', '/dev/snd'], ]
 
 ds.DockerStarter(CFG)
