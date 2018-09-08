@@ -192,6 +192,12 @@ class DockerStarter:
 
     @staticmethod
     def _cli_parse():
+        def key_val(string):
+            data = string.split('=', 1)
+            if len(data) != 2:
+                print('Bad argument -e {}, use -e KEY=VAL'.format(string))
+                exit(1)
+            return data
         parser = argparse.ArgumentParser()
         one = parser.add_mutually_exclusive_group(required=True)
         one.add_argument('--start', action='store_true', help='Start container')
@@ -202,7 +208,7 @@ class DockerStarter:
         one.add_argument('--purge', action='store_true', help='Remove container, image and data')
         one.add_argument('--restart', action='store_true', help='Run --stop && --start')
 
-        parser.add_argument('-e', action='append', metavar='KEY=VAL', help='Add more env')
+        parser.add_argument('-e', action='append', type=key_val, metavar='KEY=VAL', help='Add more env')
         parser.add_argument('-b', action='store_true', help='Build images from Dockerfile, no pull from hub')
         parser.add_argument('-t', action='store_true', help='Threaded works (Dangerous)')
         parser.add_argument('-f', action='store_true', help='Allow upgrade image from other source (hub or -b)')
@@ -361,12 +367,14 @@ class _StarterWorker(threading.Thread):
             makedir = True
             cmd.extend(['-v', '{}:{}'.format(os.path.join(self._cfg['data_path'], key), val)])
 
-        for key, val in self._cfg.get('e', {}).items():
-            cmd.extend(['-e', '{}={}'.format(key, val)])
-
         if self._cli.e is not None:
             for env in self._cli.e:
-                cmd.extend(['-e', '{}'.format(env)])
+                if 'e' not in self._cfg:
+                    self._cfg['e'] = {}
+                self._cfg['e'][env[0]] = env[1]
+
+        for key, val in self._cfg.get('e', {}).items():
+            cmd.extend(['-e', '{}={}'.format(key, val)])
 
         for el in self._cfg.get('any', []):
             if el[1] == ' ':
