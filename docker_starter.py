@@ -164,13 +164,21 @@ def _docker_repo_id() -> set:
 class DockerStarter:
     def __init__(self, cfg: dict or list):
         self._cfg = cfg if type(cfg) is list else [cfg, ]
-        self._args = self._cli_parse()
+        self._args = self._cli_parse(self._allow_b())
         self._check()
         self._containers = _docker_containers()
+        print(self._args)
+        exit(0)
         if self._args.t:
             self._all_once()
         else:
             self._one_by_one()
+
+    def _allow_b(self):
+        allow = False
+        for cfg in self._cfg:
+            allow |= os.path.isdir(cfg.get('docker_path', '')) and os.path.isfile(cfg.get('dockerfile', ''))
+        return allow
 
     def _check(self):
         if OS != 'linux':
@@ -209,7 +217,7 @@ class DockerStarter:
                 time.sleep(2)
 
     @staticmethod
-    def _cli_parse():
+    def _cli_parse(allow_b):
         def key_val(string):
             data = string.split('=', 1)
             if len(data) != 2:
@@ -227,7 +235,8 @@ class DockerStarter:
         one.add_argument('--restart', action='store_true', help='Run --stop && --start')
 
         parser.add_argument('-e', action='append', type=key_val, metavar='KEY=VAL', help='Add more env')
-        parser.add_argument('-b', action='store_true', help='Build images from Dockerfile, no pull from hub')
+        if allow_b:
+            parser.add_argument('-b', action='store_true', help='Build images from Dockerfile, no pull from hub')
         parser.add_argument('-t', action='store_true', help='Threaded works (Dangerous)')
         parser.add_argument('-f', action='store_true', help='Allow upgrade image from other source (hub or -b)')
         return parser.parse_args()
@@ -271,7 +280,7 @@ class _StarterWorker(threading.Thread):
                 print('\'{}\' must be present'.format(key))
                 return False
         type_check = {
-            str: ['name', 'image', 'data_path', 'dockerfile', 'data_path', 'restart'],
+            str: ['name', 'image', 'data_path', 'dockerfile', 'docker_path', 'restart'],
             dict: ['p', 'v', 'e'],
             list: ['any', ]
         }
@@ -328,7 +337,7 @@ class _StarterWorker(threading.Thread):
             return print('Runtime error,{} ID not found, exit'.format(self._cfg['name']))
         if not self._allow_source_change(old_sha):
             return
-        if not (self._update(old_sha) or self._cli.b):
+        if not (self._update(old_sha) or vars(self._cli).get('b', False)):
             return
         if not self._pull():
             return print('Runtime error, exit')
@@ -341,14 +350,14 @@ class _StarterWorker(threading.Thread):
         # Переключится с хаба на локальные сборки или обратно можно только с -f
         sources = ['hub', 'local build']
         old = sources[0] if old_sha != '<none>' else sources[1]
-        new = sources[0] if not self._cli.b else sources[1]
+        new = sources[0] if not vars(self._cli).get('b', False) else sources[1]
         if old != new and not self._cli.f:
             print('Disallow! Use -f for change image source from {} to {}'.format(old, new))
             return False
         return True
 
     def _pull(self):
-        if self._cli.b:
+        if vars(self._cli).get('b', False):
             return _docker_build(self._cfg['image'], self._cfg['dockerfile'], self._cfg['docker_path'])
         else:
             return _docker_pull(self._cfg['image'])
