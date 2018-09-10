@@ -164,11 +164,12 @@ def _docker_repo_id() -> set:
 class DockerStarter:
     def __init__(self, cfg: dict or list):
         self._cfg = cfg if type(cfg) is list else [cfg, ]
-        self._args = self._cli_parse(self._allow_b())
+        self._args, install = self._cli_parse(self._allow_b())
         self._check()
+        if install is not None:
+            SystemD(install, self._cfg[0]['name'])
+            return
         self._containers = _docker_containers()
-        print(self._args)
-        exit(0)
         if self._args.t:
             self._all_once()
         else:
@@ -239,7 +240,17 @@ class DockerStarter:
             parser.add_argument('-b', action='store_true', help='Build images from Dockerfile, no pull from hub')
         parser.add_argument('-t', action='store_true', help='Threaded works (Dangerous)')
         parser.add_argument('-f', action='store_true', help='Allow upgrade image from other source (hub or -b)')
-        return parser.parse_args()
+        if OS == 'linux':
+            two = parser.add_mutually_exclusive_group()
+            two.add_argument('--install', action='store_true', help='Install systemd unit')
+            one.add_argument('--uninstall', action='store_true', help='Remove systemd unit')
+        install = None
+        args = parser.parse_args()
+        if vars(args).get('uninstall'):
+            install = False
+        elif vars(args).get('install'):
+            install = True
+        return args, install
 
 
 class _StarterWorker(threading.Thread):
@@ -417,3 +428,92 @@ class _StarterWorker(threading.Thread):
         msg = 'docker run' if result else 'Failed docker run'
         print('{} {}'.format(msg, ' '.join(cmd)))
         return result
+
+
+class SystemD:
+    def __init__(self, action, name):
+        self._root_test()
+        name = '{} auto'.format(name)
+        f_name = '_'.join(name.lower().split())
+        self._files = ['{}.service'.format(f_name), '{}.timer'.format(f_name)]
+        self._systemd_path = '/etc/systemd/system/'
+        self._path = {
+            '_TIME_': '6h',
+            '_PARAMS_': self._get_params_str(),
+            '_MAIN_': os.path.abspath(sys.argv[0]),
+            '_NAME_': name
+        }
+        self._data = {k: self._getter(k) for k in self._files}
+        if action is None:
+            raise RuntimeError('Action is None')
+        elif action:
+            self.install()
+        else:
+            self.uninstall()
+
+    def install(self):
+        for k in self._data:
+            path = os.path.join(self._systemd_path, k)
+            with open(path, 'w') as fp:
+                fp.write(self._data[k])
+        self._systemd_reload()
+        self._systemd_enable()
+
+    def uninstall(self):
+        self._systemd_disable()
+        for k in self._data:
+            try:
+                os.remove(os.path.join(self._systemd_path, k))
+            except FileNotFoundError:
+                pass
+        self._systemd_reload()
+
+    @staticmethod
+    def _get_params_str() -> str:
+        params = sys.argv[1:]
+        for rm in ['--install', '--uninstall']:
+            if rm in params:
+                params.remove(rm)
+        return ' '.join(params)
+
+    @staticmethod
+    def _root_test():
+        if os.geteuid() != 0:
+            print('--(un)install need root privileges. Use sudo, bye.')
+            exit(1)
+
+    @staticmethod
+    def _systemd_reload():
+        subprocess.run(['systemctl', 'daemon-reload'])
+
+    def _systemd_enable(self):
+        subprocess.run(['systemctl', 'enable', self._files[1]])
+        subprocess.run(['systemctl', 'start', self._files[1]])
+
+    def _systemd_disable(self):
+        subprocess.run(['systemctl', 'stop', self._files[1]])
+        subprocess.run(['systemctl', 'disable', self._files[1]])
+
+    def _getter(self, file: str) -> str:
+        d = {
+            self._files[0]: [
+                '[Unit]',
+                'Description={_NAME_} job',
+                '',
+                '[Service]',
+                'Type=oneshot',
+                'ExecStart=/usr/bin/python3 -u {_MAIN_} {_PARAMS_}'
+            ],
+            self._files[1]: [
+                '[Unit]',
+                'Description={_NAME_}',
+                '',
+                '[Timer]',
+                'OnBootSec=15min',
+                'OnUnitActiveSec={_TIME_}',
+                '',
+                '[Install]',
+                'WantedBy=timers.target'
+            ]
+        }
+        return '\n'.join(d[file]).format(**self._path)
