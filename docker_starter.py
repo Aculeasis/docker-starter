@@ -162,12 +162,12 @@ def _docker_repo_id() -> set:
 
 
 class DockerStarter:
-    def __init__(self, cfg: dict or list):
+    def __init__(self, cfg: dict or list, unit_name: str or None=None):
         self._cfg = cfg if type(cfg) is list else [cfg, ]
         self._args, install = self._cli_parse(self._allow_b())
         self._check()
         if install is not None:
-            SystemD(install, self._cfg[0]['name'])
+            SystemD(install, unit_name or self._cfg[0]['name'])
             return
         self._containers = _docker_containers()
         if self._args.t:
