@@ -218,7 +218,7 @@ class DockerStarter:
         one.add_argument('--restart', action='store_true', help='Run --stop && --start')
 
         parser.add_argument('-e', action='append', type=key_val, metavar='KEY=VAL', help='Add more env')
-        if allow_b:
+        if allow_b and OS != 'windows':
             parser.add_argument('-b', action='store_true', help='Build images from Dockerfile, no pull from hub')
         parser.add_argument('-t', action='store_true', help='Threaded works (Dangerous)')
         parser.add_argument('-f', action='store_true', help='Allow upgrade image from other source (hub or -b)')
