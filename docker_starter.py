@@ -6,7 +6,6 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 import urllib.error
 import urllib.request
 import platform
@@ -171,9 +170,9 @@ class DockerStarter:
             return
         self._containers = _docker_containers()
         if self._args.t:
-            self._all_once()
+            [run.join() for run in [_StarterWorker(cfg, self._args, self._containers) for cfg in self._cfg]]
         else:
-            self._one_by_one()
+            [_StarterWorker(cfg, self._args, self._containers).join() for cfg in self._cfg]
 
     def _allow_b(self):
         allow = False
@@ -199,23 +198,6 @@ class DockerStarter:
                 print('Image {} duplicated and threading enabled, don\'t use -t. UNACCEPTABLE!'.format(cfg['image']))
                 exit(1)
             images.add(cfg['image'])
-
-    def _all_once(self):
-        runs = [_StarterWorker(cfg, self._args, self._containers) for cfg in self._cfg]
-        work = True
-        while work:
-            work = False
-            time.sleep(2)
-            for run in runs:
-                if run.status() is None:
-                    work = True
-                    break
-
-    def _one_by_one(self):
-        for cfg in self._cfg:
-            run = _StarterWorker(cfg, self._args, self._containers)
-            while run.status() is None:
-                time.sleep(2)
 
     @staticmethod
     def _cli_parse(allow_b):
@@ -259,11 +241,7 @@ class _StarterWorker(threading.Thread):
         self._cfg = cfg
         self._cli = cli
         self._containers = containers
-        self._status = None
         self.start()
-
-    def status(self):
-        return self._status
 
     def run(self):
         if not self._config_check():
@@ -283,7 +261,6 @@ class _StarterWorker(threading.Thread):
         elif self._cli.restart:
             if self._stop():
                 self._start()
-        self._status = 0
 
     def _config_check(self):
         for key in ['name', 'image', 'data_path']:
